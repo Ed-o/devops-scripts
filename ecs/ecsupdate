@@ -1,0 +1,192 @@
+#!/bin/bash
+set -e
+
+# Update an ECS container to a different code version
+# By Ed ODonnell
+#
+# Release: 20231116
+
+
+help="
+ecsupdate :
+	Script to get current task definition, and then update it to a new image version
+	usage -
+		ecsupdate [-account 12345678] [-ecr 87654321] [-region eu-west-1] [-repo repo-name] cluster container-name [version]
+		examples -
+		ecsupdate ecs-cluster mainapp 4.5.6
+		ecsupdate ecs-cluster mysql
+		ecsupdate -account 12345678 ecs-cluster mainapp 4.5.6-20
+		ecsupdate -repo myapp ecs-cluster mainapp 4.5.6
+		ecsupdate -region eu-west-1 ecs-cluster mainapp 4.5.6
+		ecsupdate -region eu-west-1 -account 12345678 -repo mydatabase my-cluster mysql 5.7.20
+
+"
+
+# First we set some defaults :
+DEBUG="FALSE" # "TRUE"
+REGION="eu-west-1"
+export AWS_DEFAULT_REGION="$REGION"
+
+AWS_ACCOUNT_ID=""
+ECS_CLUSTER=""
+REPONAME=""
+ECRREPO=""
+
+# Check if jq is installed as we do need it 
+if ! command -v jq &> /dev/null
+then
+    echo "jq command is not installed - we need it to run this script"
+    exit 3
+fi
+
+POSITIONAL=()
+while [[ $# -gt 0 ]]
+do
+        key="$1"
+
+        case $key in
+            --help|-help|-h)
+                echo "$help"
+                exit 0
+            ;;
+            -account|--account|-a)
+		AWS_ACCOUNT_ID="$2"
+	        shift # past argument
+	        shift # past parameter
+            ;;
+            -repo|--repo|-r)
+		REPONAME="$2"
+	        shift # past argument
+	        shift # past parameter
+            ;;
+            -ecr|--ecr|-e)
+		ECRREPO="$2"
+	        shift # past argument
+	        shift # past parameter
+            ;;
+            -region|--region|-rgn)
+		REGION="$2"
+	        shift # past argument
+	        shift # past parameter
+            ;;
+            *)    # unknown option
+                POSITIONAL+=("$1") # save it in an array for later
+                shift # past argument
+            ;;
+        esac
+done
+set -- "${POSITIONAL[@]}" # restore positional parameters
+
+if [ "$DEBUG" == "TRUE" ] ; then
+        echo "Debug stuff :"
+fi
+
+# Lets see if the AWS Account number was set
+if [ -z "$AWS_ACCOUNT_ID" ] ; then # Account was not set.  
+	if [ -z "$actnum" ] ; then # Account was not in the env variable actnum
+		echo "You need to tell me which account number to work on.  (Try -h for help)"
+		exit 2
+	else
+		AWS_ACCOUNT_ID="$actnum"
+	fi
+fi
+echo "AWS Account = $AWS_ACCOUNT_ID"
+echo "Region = $REGION"
+
+# Lets see if we have an ECS cluster name
+if [[ $# -gt 0 ]] ; then
+        echo "ECS Cluster = $1"
+        ECS_CLUSTER="$1"
+else
+        echo "You need to give me an ECS cluster Name to use for the update (try doing -h for help)"
+        exit 4
+fi
+
+# Lets see if we have a container name 
+if [[ $# -gt 1 ]] ; then
+	echo "Container = $2"
+	CONTAINER="$2"
+else
+	echo "You need to give me the container name to update (try doing -h for help)"
+	exit 1
+fi
+
+# Lets see if we need to set the REPO Name
+if [ -z "$REPONAME" ] ; then # It was not set so we will assume it is the container name
+	REPONAME="$CONTAINER"
+else
+	echo "RepoName = $REPONAME"
+fi
+
+# Lets see if we set an ECR Repo location
+if [ -z "$ECRREPO" ] ; then # It was not set so we will assume it is the aws account number
+        ECRREPO="$AWS_ACCOUNT_ID"
+else
+        echo "ECR Repo Location = $ECRREPO"
+fi
+
+# and check as there may be a version number
+if [[ $# -gt 2 ]] ; then
+        echo "Version = $3"
+	VERSION="$3"
+else
+	echo "version = latest"
+	VERSION="latest"
+fi
+
+# Was the repo name embedded in the version number bit ?
+if [[ "$VERSION" == *":"* ]] ; then
+	# We have a repo:version in the parameter so lets split and put it where it should be
+	VERCHECK=$VERSION
+	echo "$VERCHECK" | IFS=":" read -r REPONAME VERSION
+	IMAGE="${VERSION}"
+else
+	IMAGE="${REPONAME}:${VERSION}"
+fi
+
+# Here is what we will be using for the image :
+ECR_IMAGE="${ECRREPO}.dkr.ecr.${REGION}.amazonaws.com/${IMAGE}"
+if [ "$DEBUG" == "TRUE" ] ; then echo "ECR_IMAGE ===> $ECR_IMAGE" ; fi
+
+TASK_NAME=$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$CONTAINER" --query 'services[0].taskDefinition' --output text | awk -F"/" '{print $2}' | awk -F":" '{print $1}')
+if [ "$DEBUG" == "TRUE" ] ; then echo "TASK_NAME ===> $TASK_NAME" ; fi
+
+TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition "$TASK_NAME" --region "$REGION")
+if [ "$DEBUG" == "TRUE" ] ; then echo "TASK_DEFINITION ===> $TASK_DEFINITION" ; fi
+
+NEW_TASK_DEFINITION=$(echo "$TASK_DEFINITION" | jq --arg IMAGE "$ECR_IMAGE" '.taskDefinition | .containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn) | del(.revision) | del(.status) | del(.requiresAttributes) | del(.compatibilities) | del(.registeredAt) | del(.registeredBy)' )
+if [ "$DEBUG" == "TRUE" ] ; then echo "NEW_TASK_DEFINITION ===> $NEW_TASK_DEFINITION" ; fi
+
+echo "> "
+echo "> "
+echo "Working on ECS task definition: $TASK_NAME"
+echo " "
+echo ">=== Current setting:"
+echo "$TASK_DEFINITION" | grep '"image":' | awk '{ gsub (" ", "", $0); print}'
+echo ">=== changing to ===>"
+echo "$NEW_TASK_DEFINITION" | grep '"image":' | awk '{ gsub (" ", "", $0); print}'
+
+
+# Ok we have all the data shall we go ahead and update ?
+read -p "Are you sure? (y/n)" -n 1 -r
+echo    # move to a new line
+if [[ $REPLY =~ ^[Yy]$ ]]
+then
+    # do the update
+    NEW_TASK_INFO=$(aws ecs register-task-definition --region "$REGION" --cli-input-json "$NEW_TASK_DEFINITION")
+    if [ "$DEBUG" == "TRUE" ] ; then echo "NEW_TASK_INFO ===> $NEW_TASK_INFO" ; fi
+
+    NEW_REVISION=$(echo $NEW_TASK_INFO | jq '.taskDefinition.revision')
+    if [ "$DEBUG" == "TRUE" ] ; then echo "NEW_REVISION ===> $NEW_REVISION" ; fi
+
+    if [ "$DEBUG" == "TRUE" ] ; then 
+	echo "===> Updating ==>"
+	echo "aws ecs update-service --cluster ${ECS_CLUSTER} --service ${CONTAINER} --task-definition ${TASK_NAME}:${NEW_REVISION}"
+    fi
+    aws ecs update-service --cluster ${ECS_CLUSTER} \
+                       --service ${CONTAINER} \
+                       --task-definition ${TASK_NAME}:${NEW_REVISION} \
+                       --output=text
+
+fi
+

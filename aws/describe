@@ -1,0 +1,223 @@
+#!/bin/bash
+
+# Describe an AWS setup 
+# By Ed ODonnell
+#
+# Release: 20231116 
+
+help="
+Parameters :
+     --help | -h
+
+     --type | -t [ ec2 | rds | reserved | volumes | snapshots | ip | vpcs | 
+                   eks | ecs | ecs-clusters | ecs-tasks | subnets | iam | 
+                   iamusers | iamroles | es | cognito-pools | cognito-users | s3 ]
+
+     --domain | -data | -d [ data-goes-here ]
+
+     --format | -f [ json | text | table ]
+
+     --region | -r [ xx-xxxxx-x | all ]
+
+     --login
+
+"
+
+
+DEBUG="TRUE"
+
+REGION="eu-west-1"
+export AWS_DEFAULT_REGION="$REGION"
+
+FORMAT="--output table"
+DATA=""
+
+FULLREG="us-east-1 us-east-2 us-west-1 us-west-2 eu-west-1 eu-west-2 eu-west-3 eu-north-1 eu-central-1"
+OTHERREG="ap-east-1 ap-south-1 ap-northeast-1 ap-northeast-2 ap-northeast-3 ap-southeast-1 ap-southeast-2 ca-central-1 cn-north-1 cn-northwest-1 me-south-1 sa-east-1"
+GOVREG="us-gov-east-1 us-gov-west-1"
+
+QUERY='Reservations[*].Instances[*].[InstanceId, Tags[?Key==`Name`]| [0].Value, InstanceType, Placement.AvailabilityZone , State.Name, PrivateIpAddress, PublicIpAddress]'
+BASE="ec2 describe-instances"
+
+POSITIONAL=()
+while [[ $# -gt 0 ]]
+do
+        key="$1"
+
+        case $key in
+	    --help|-help|-h)
+		echo "$help"
+		exit 0
+	    ;;
+            --region|-region|-r)
+		REGION="$2"
+		UPREGION=`printf '%s\n' "$2" | awk '{ print toupper($0) }'`
+		if [ "$UPREGION" == "ALL" ] ; then 
+			REGION="$FULLREG"
+		fi
+		if [ "$UPREGION" == "OTHER" ] ; then 
+			REGION="$OTHERREG"
+		fi
+		if [ "$UPREGION" == "GOV" ] ; then 
+			REGION="$GOVREG"
+		fi
+		shift # past argument
+		shift # past parameter
+            ;;
+	    --format|-format|-f)
+		FORMAT="--output $2"
+		shift # past argument
+                shift # past parameter
+	    ;;
+	    --domain|-domain|-data|-d)
+		DATA="$2"
+		# and now assign it to the query string :
+		if [ "$TYPE" == "ES" ] ; then
+			if [ "$DATA" != "" ] ; then
+				BASE="es describe-elasticsearch-domains --domain-name $DATA "
+				QUERY="DomainStatusList[].[DomainId, DomainName, Endpoints.vpc, ElasticsearchVersion, ElasticsearchClusterConfig, SnapshotOptions]"
+				FORMAT=""
+			fi
+		fi
+		if [ "$TYPE" == "ECS-CLUSTERS" ] ; then
+                        if [ "$DATA" != "" ] ; then
+                                BASE="ecs describe-clusters --cluster $DATA "
+				QUERY=""
+                                FORMAT=""
+                        fi
+                fi
+                if [ "$TYPE" == "ECS-TASKS" ] ; then
+                        if [ "$DATA" != "" ] ; then
+                                BASE="ecs list-tasks --cluster $DATA "
+                                QUERY=""
+                                FORMAT=""
+                        fi
+                fi
+                shift # past argument
+                shift # past parameter
+	    ;;
+	    --type|-type|-t)
+		TYPE=`printf '%s\n' "$2" | awk '{ print toupper($0) }'`
+		if [ "$TYPE" == "EC2" ] ; then
+			BASE="ec2 describe-instances"
+			QUERY='Reservations[*].Instances[*].[InstanceId, Tags[?Key==`Name`]| [0].Value, InstanceType, Placement.AvailabilityZone , State.Name, PrivateIpAddress, PublicIpAddress]'
+		fi
+                if [ "$TYPE" == "RDS" ] ; then
+                        BASE="rds describe-db-instances"
+                        QUERY="DBInstances[*].[DBClusterIdentifier, DBInstanceClass, AvailabilityZone, Engine]"
+                fi
+                if [ "$TYPE" == "RESERVED" ] ; then
+                        BASE="ec2 describe-reserved-instances"
+                        QUERY=""
+                fi
+                if [ "$TYPE" == "VOLUMES" ] ; then
+                        BASE="ec2 describe-volumes"
+                        QUERY='Volumes[*].[VolumeId, Tags[?Key==`Name`]| [0].Value, Size, VolumeType, State]'
+                fi
+                if [ "$TYPE" == "SNAPSHOTS" ] ; then
+                        BASE="ec2 describe-snapshots --owner self"
+                        QUERY="Snapshots[*].[SnapshotId, StartTime, State, VolumeSize, Description]"
+                fi
+                if [ "$TYPE" == "IP" ] || [ "$TYPE" == "IPS" ] || [ "$TYPE" == "ELASTIC" ] ; then
+                        BASE="ec2 describe-addresses"
+                        QUERY='Addresses[*].[PublicIp, Tags[?Key==`Name`]| [0].Value, PrivateIpAddress]'
+                fi
+                if [ "$TYPE" == "VPCS" ] || [ "$TYPE" == "VPC" ] ; then
+                        BASE="ec2 describe-vpcs"
+                        QUERY='Vpcs[*].[VpcId, CidrBlock, State]'
+                fi
+		if [ "$TYPE" == "EKS" ] ; then
+			BASE="eks list-clusters"
+			QUERY=""
+                fi
+		if [ "$TYPE" == "ECS" ] ; then
+                        BASE="ecs list-clusters"
+                        QUERY=""
+                fi
+                if [ "$TYPE" == "SUBNETS" ] || [ "$TYPE" == "SUBNET" ] ; then
+                        BASE="ec2 describe-subnets"
+                        QUERY='Subnets[*].[VpcId, SubnetId, CidrBlock, AvailabilityZoneId, State]'
+                fi
+                if [ "$TYPE" == "IAM" ] || [ "$TYPE" == "IAMUSERS" ] ; then
+                        BASE="iam list-users"
+                        QUERY=""
+                fi
+                if [ "$TYPE" == "IAMROLES" ] ; then
+                        BASE="iam list-roles"
+                        QUERY=""
+                fi
+                if [ "$TYPE" == "ES" ] ; then
+                        BASE="es list-domain-names"
+                        QUERY=""
+                fi
+                if [ "$TYPE" == "COGNITO-POOLS" ] ; then
+                        BASE="cognito-idp list-user-pools --max-results 50"
+                        QUERY=""
+			LOOP=""
+                fi
+                if [ "$TYPE" == "COGNITO-USERS" ] ; then
+                        BASE="cognito-idp list-users --user-pool-id eu-west-1_iESPEZxph"
+                        QUERY=""
+			LOOP=""
+                fi
+		if [ "$TYPE" == "S3" ] ; then
+			BASE="s3 ls"
+			QUERY=""
+                fi
+                shift # past argument
+                shift # past parameter
+            ;;
+            --login|-login|-l)
+		mypath="`dirname \"$0\"`"
+		cd "$mypath"
+		source "./1l"
+		shift # past argument
+	    ;;
+            *)    # unknown option
+                POSITIONAL+=("$1") # save it in an array for later
+                shift # past argument
+            ;;
+        esac
+done
+set -- "${POSITIONAL[@]}" # restore positional parameters
+
+if [ "$DEBUG" == "TRUE" ] ; then
+	echo "Base = $BASE"
+	echo "Query = $QUERY"
+	echo "Grep = $GREP"
+	echo "Loop = $LOOP"
+fi
+
+if [ ! -z "$@" ] ; then
+	for GREPLOOP in "$@" ; do
+		GREP="$GREP grep $GREPLOOP"
+	done 
+else 
+	GREP=""
+fi
+
+if [ -z "$LOOP" ] ; then
+	for LOOP in $REGION ; do 
+		Echo "Region : $LOOP :"
+		if [ -z "$QUERY" ] ; then
+			if [ -z "$GREP" ] ; then
+				aws $BASE --region $LOOP $FORMAT 
+			else
+				aws $BASE --region $LOOP $FORMAT | $GREP
+			fi
+		else
+			if [ -z "$GREP" ] ; then
+				aws $BASE --region $LOOP $FORMAT --query "$QUERY"
+			else
+				aws $BASE --region $LOOP $FORMAT --query "$QUERY" | $GREP
+			fi
+		fi
+	done
+else
+	if [ -z "$GREP" ] ; then
+		aws $BASE $FORMAT
+        else
+                aws $BASE $FORMAT | $GREP
+        fi
+fi
+

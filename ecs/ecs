@@ -1,0 +1,185 @@
+#!/bin/bash
+
+# Describe an AWS ECS cluster and interacrt with it 
+# By Ed ODonnell
+#
+# Release: 20231116
+
+help="
+Usage :
+ ecs help			Displays this info
+ ecs setup [env1]		run this to set ecs to talk to your cluster
+				(note - you need to copy, paste and run the line it gives you)
+ ecs list			display pods running in the cluster
+ ecs cluster			Gives info about the ECS cluster
+ ecs service [name] 		Gives info about a service running inside that cluster
+				Example : ecs service nginx
+ ecs resize name [size]		Change or display the number of each type of pod
+				Example : ecs resize repo-name 1      or just : ecs resize nginx
+ ecs update name version	Update to new code version
+				Example : ecs update repo-name repo-name:v1.2.3
+ ecs runbastion			Run the bastion server
+ ecs logs bastion-sandbox	Return logs for the running service
+ ecs join tasknum		Exec into that pod
+				Example : ecs join 1234567890123456789012
+
+"
+
+if [ $# -eq 0 ] ; then
+	echo "$help"
+	exit 0
+fi
+
+# DEBUG="TRUE"
+
+# We have some default settings here
+REGION="eu-west-1"
+export AWS_DEFAULT_REGION="$REGION"
+default_task="repo-name"
+default_cluster="cluster-name"
+DEFAULT_ACTNUM="987654321"
+FORMAT="--output table"
+DATA=""
+
+# Lets see where we were run from :
+script_name=$0
+full_path=$(dirname "$0")
+
+# Are we missing any stuff we need to run ?
+if [ "$cluster" == "" ] ; then
+	cluster="$default_cluster"
+fi
+if [ "$clustername" == "" ] ; then
+	# The clusterName will be anything after the first dash or the full string if no dash exist
+	clustername=`echo $cluster | cut -d- -f2,3,4,5`
+fi
+
+# Lets say where we are working to try to cut out any risk of someone running on wrong env :
+echo "Results for Cluster : [$cluster] with team name : [$clustername]"
+
+POSITIONAL=()
+while [[ $# -gt 0 ]]
+do
+	key="$1"
+
+	case $key in
+		help|h|--help|-help|-h)
+			echo "$help"
+			exit 0
+		;;
+		cluster|-cluster|--cluster|clusters|-clusters|--clusters)
+			aws ecs list-clusters --output=text | awk '{print $2}'
+			shift # past parameter
+		;;
+		service|-service|--service|services|-services|--services)
+			shift # past parameter
+			if [ "$1" == "" ] ; then
+				# We have not asked for a service so use the default
+				servicecheck="$default_task"
+			else
+				servicecheck="$1"
+				shift # past parameter
+			fi
+			aws ecs describe-services --cluster $cluster --services "$servicecheck" --output=text
+		;;
+		resize|-resize|--resize)
+			shift # past parameter
+			if [ "$1" == "" ] ; then
+				# We have not asked for a service so use the default
+				servicecheck="$default_task"
+			else
+				servicecheck="$1"
+				shift # past parameter
+				if [ "$1" == "" ] ; then
+					# We have not given a size
+					aws ecs describe-services --cluster "$cluster" --services "$servicecheck" --query 'services[0].desiredCount'
+		 		else
+					servicesize="$1"
+					shift # past parameter
+					aws ecs update-service --cluster "$cluster" --service "$servicecheck" --desired-count $servicesize --no-paginate
+				fi
+			fi
+		;;
+		update|-update|--update)
+			shift # past parameter
+			. $full_path/ecsupdate --account $DEFAULT_ACTNUM $cluster $1 $2 $3
+			shift # past parameter
+			shift # past parameter
+			shift # past parameter
+		;;
+		list|-list|--list)
+			aws ecs list-tasks --cluster $cluster --output json | jq -r '.taskArns[]' | xargs -I {} aws ecs describe-tasks --cluster $cluster --tasks {} --query 'tasks[].{Group: group, TaskArn: taskArn, ContainersName: containers[].name, ContainersImage: containers[].image, ContainersID: containers[].runtimeId, PrivateIPs: containers[].networkInterfaces[].privateIpv4Address}' --output json | jq -r '.[] | "\(.Group): \(.ContainersName): \(.PrivateIPs) Version: \(.ContainersImage[] | split(":")[1]) - \(.ContainersID)"'
+			shift # past parameter
+		;;
+		runbastion|-runbastion|--runbastion|bastion|-bastion|--bastion)
+			# Get some details like security groups and subnets
+			# details=`aws ecs describe-services --cluster ${cluster} --services bastion --output=text`
+			# sg_id=`echo "$details" | grep "SECURITYGROUPS" | sort | uniq | awk '{print $2}' | tr "\n", "," | sed 's/,$//'`
+			# subnet_id=`echo "$details" | grep "SUBNETS" | sort | uniq | awk '{print $2}' | tr "\n", "," | sed 's/,$//'`
+			# task_definition=$(aws ecs list-task-definitions | grep "bastion-$clustername" | sort -r | head -n 1 | awk -F/ '{print $2}' | tr -d "," | tr -d "\"")
+			# aws ecs run-task --no-paginate --cluster "${cluster}" --task-definition "${task_definition}" --count 1 --launch-type FARGATE --network-configuration "awsvpcConfiguration={subnets=[${subnet_id}],securityGroups=[${sg_id}]}" --enable-ecs-managed-tags --output=text 
+			shift # past parameter
+			aws ecs update-service --cluster "$cluster" --service "bastion" --desired-count 1 --no-paginate
+		;;
+		logs|-logs|--logs|log|-log|--log)
+			shift # past parameter
+			aws logs filter-log-events --log-group-name application-$1 --log-stream-name-prefix "ecs" | grep "\"message\""
+			shift # past parameter
+		;;
+		join|-join|--join)
+			if [ "$2" == "" ] ; then
+				# We have not given a tasknum
+				echo "Error I need a task number to join"
+				# Maybe we could get the task num of bastion by default
+				servicecheck="notset"
+			else
+				servicecheck="$2"
+				shift # past parameter
+			fi
+			# We check to see if the tasknum has a minus sign in it and only take text up to that point if it does
+			if [[ "$servicecheck" == *-* ]]; then
+				servicecheck="${servicecheck%-*}"
+			fi
+			aws ecs execute-command --interactive --cluster "$cluster" --command \"/bin/sh\" --task "$servicecheck"
+			shift # past parameter
+		;;
+		setup|-setup|--setup)
+			shift # past parameter
+			envtest="$1"
+			if [ "$envtest" == "" ] ; then 
+				# We have not set an env so lets just say what is currently set
+				echo "You are using account : [$actnum]"
+				echo "You are accessing cluster : [$cluster]"
+				echo "with team name : [$clustername]"
+			else
+				if [ "$envtest" == "test" ] ; then
+					echo "To setup for test copy and paste this line --->" 
+					echo 'export cluster="cluster-test" ; export actnum="987654321"'
+					shift # past parameter
+				elif [ "$envtest" == "qa" ] ; then
+					echo "To setup for QA copy and paste this line --->" 
+					echo 'export cluster="cluster-qa" ; export actnum="987654321"'
+					shift # past parameter
+				elif [ "$envtest" == "platform" ] || [ "$envtest" == "prod" ] ; then
+					echo "To setup for PLATFORM (PROD) copy and paste this line --->" 
+					echo 'export cluster="cluster-platform" ; export actnum="987654321"'
+					echo "---> and be careful !!!"
+					shift # past parameter
+				else 
+					echo "I'm not sure that that is an environment"
+					echo "Maybe you mean one of these :"
+					echo "    ecs setup test"
+					echo "    ecs setup qa"
+					echo "    ecs setup prod"
+				fi
+			fi
+		;;
+		*)
+			echo "What does $1 mean ?"
+			shift # past parameter
+		;;
+	esac
+done
+set -- "${POSITIONAL[@]}" # restore positional parameters
+
+
