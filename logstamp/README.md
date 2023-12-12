@@ -13,7 +13,7 @@
 
 
 
-    Example -
+#    Example -
   
       set a cron job to add a line to your log file every ten minutes
         0/10  *  *  *  *  /usr/local/bin/logstamp  /var/log/mylog.log  >> /var/log/mylog.log
@@ -36,4 +36,10 @@
         If the two strings match then the file has not been changed since that point and your backup is confirmed as untouched (at least at this point)
 
 
+# Requirements
+
+This script uses sha256 to generate the stamp hash number (the checksum of the file so far)
+
+This command should be on most linuxes.  If you dont have it you can add it or change the command to something similar like md5sum 
+(which will do a smaller similar checksum, but a smart auditor will say md5 is a bit old and cracked now you should use sha or similar).
 
