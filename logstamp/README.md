@@ -1,6 +1,6 @@
 # logstamp : The checksum creator for log files
 
-      This script was writen for a very specific use case.
+      This script was written for a very specific use case.
       If you produce log files and they get backed up every few lines by an automated
       service like logTosser or to CloudWatch etc, and you may at a future time have to prove
       that the backed up logs are exactly the same and not edited (maybe for an audit), 
