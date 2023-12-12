@@ -1,4 +1,4 @@
-## logstamp : The checksum creator for log files
+# logstamp : The checksum creator for log files
 
   usage -
 
@@ -13,7 +13,7 @@
 
 
 
-#    Example -
+##    Example -
   
       set a cron job to add a line to your log file every ten minutes
         0/10  *  *  *  *  /usr/local/bin/logstamp  /var/log/mylog.log  >> /var/log/mylog.log
@@ -36,7 +36,7 @@
         If the two strings match then the file has not been changed since that point and your backup is confirmed as untouched (at least at this point)
 
 
-# Requirements
+## Requirements
 
 This script uses sha256 to generate the stamp hash number (the checksum of the file so far)
 
