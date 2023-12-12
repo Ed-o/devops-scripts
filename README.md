@@ -8,7 +8,10 @@ this script is designed to manage the ecs containers in AWS.  It is setup to all
 It is justa wrapper for the aws-cli but it does make it easier to use (I think)
 
 ## AWS
-A tool to wrap the aws-cli to allow simple lookups on the cooman line.
+A tool to wrap the aws-cli to allow simple lookups on the command line.
+
+## logstamp
+A script to place a checksum stamp in a file so you can confirm a backup version is the same untouched file maybe during an audit.
 
 
 
