@@ -11,13 +11,13 @@
   logstamp.sh filename                                    
       Create a checksum of the file
 
-  logstamp.sh --append filename
+  logstamp.sh --append filename                                    
       Create the checksum and add it to the end of the file
 
-  logstamp.sh filename >> filename
+  logstamp.sh filename >> filename                                    
       Same as above (make sure you use double >>)
 
-  logstamp.sh --test "2023-12-11 20:30:40" filename
+  logstamp.sh --test "2023-12-11 20:30:40" filename                                    
       Logs for that line and tests up to there
 
 
