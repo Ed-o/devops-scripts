@@ -3,7 +3,7 @@
 # Describe an AWS setup 
 # By Ed ODonnell
 #
-# Release: 20231116 
+# Release: 20231221 
 
 help="
 Parameters :
@@ -11,7 +11,8 @@ Parameters :
 
      --type | -t [ ec2 | rds | reserved | volumes | snapshots | ip | vpcs | 
                    eks | ecs | ecs-clusters | ecs-tasks | subnets | iam | 
-                   iamusers | iamroles | es | cognito-pools | cognito-users | s3 ]
+                   iamusers | iamroles | es | cognito-pools | cognito-users | 
+                   s3 | certs | cloudfront ]
 
      --domain | -data | -d [ data-goes-here ]
 
@@ -163,6 +164,14 @@ do
 		if [ "$TYPE" == "S3" ] ; then
 			BASE="s3 ls"
 			QUERY=""
+                fi
+		if [ "$TYPE" == "CERTS" ] || [ "$TYPE" == "CERT" ] || [ "$TYPE" == "ACM" ] ; then
+                        BASE="acm list-certificates"
+                        QUERY=""
+                fi
+		if [ "$TYPE" == "CLOUDFRONT" ] || [ "$TYPE" == "CF" ] ; then
+                        BASE="cloudfront list-distributions"
+                        QUERY=""
                 fi
                 shift # past argument
                 shift # past parameter
