@@ -3,7 +3,7 @@
 # Describe an AWS setup 
 # By Ed ODonnell
 #
-# Release: 20231221 
+# Release: 20240112 
 
 help="
 Parameters :
@@ -12,7 +12,7 @@ Parameters :
      --type | -t [ ec2 | rds | reserved | volumes | snapshots | ip | vpcs | 
                    eks | ecs | ecs-clusters | ecs-tasks | subnets | iam | 
                    iamusers | iamroles | es | cognito-pools | cognito-users | 
-                   s3 | certs | cloudfront ]
+                   s3 | certs | cloudfront | lambda ]
 
      --domain | -data | -d [ data-goes-here ]
 
@@ -25,7 +25,7 @@ Parameters :
 "
 
 
-DEBUG="TRUE"
+DEBUG="FALSE"
 
 REGION="eu-west-1"
 export AWS_DEFAULT_REGION="$REGION"
@@ -46,6 +46,10 @@ do
         key="$1"
 
         case $key in
+	    --debug)
+		DEBUG="TRUE"
+		shift # past argument
+	    ;;
 	    --help|-help|-h)
 		echo "$help"
 		exit 0
@@ -167,6 +171,10 @@ do
                 fi
 		if [ "$TYPE" == "CERTS" ] || [ "$TYPE" == "CERT" ] || [ "$TYPE" == "ACM" ] ; then
                         BASE="acm list-certificates"
+                        QUERY="CertificateSummaryList[*].[DomainName,NotAfter,RenewalEligibility,Status]"
+                fi
+                if [ "$TYPE" == "LAMBDA" ] ; then
+                        BASE="lambda list-functions"
                         QUERY=""
                 fi
 		if [ "$TYPE" == "CLOUDFRONT" ] || [ "$TYPE" == "CF" ] ; then
