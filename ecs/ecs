@@ -108,7 +108,7 @@ do
 			shift # past parameter
 		;;
 		list|-list|--list)
-			aws ecs list-tasks --cluster $cluster --output json | jq -r '.taskArns[]' | xargs -I {} aws ecs describe-tasks --cluster $cluster --tasks {} --query 'tasks[].{Group: group, TaskArn: taskArn, ContainersName: containers[].name, ContainersImage: containers[].image, ContainersID: containers[].runtimeId, PrivateIPs: containers[].networkInterfaces[].privateIpv4Address}' --output json | jq -r '.[] | "\(.Group): \(.ContainersName): \(.PrivateIPs) Version: \(.ContainersImage[] | split(":")[1]) - \(.ContainersID)"'
+			aws ecs describe-tasks --cluster $cluster --tasks $(aws ecs list-tasks --cluster $cluster --output json | jq -r '.taskArns | join(" ")') --query 'tasks[].{Group: group, TaskArn: taskArn, Containers: containers[].{Name: name, Image: image, ID: runtimeId, PrivateIPs: networkInterfaces[].privateIpv4Address}}' --output json | jq -r '.[] | "\(.Group): \(.Containers[].Name): \(.Containers[].PrivateIPs) Version: \(.Containers[].Image | split(":")[1]) - \(.Containers[].ID)"'
 			shift # past parameter
 		;;
 		runbastion|-runbastion|--runbastion|bastion|-bastion|--bastion)
