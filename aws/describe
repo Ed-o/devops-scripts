@@ -12,7 +12,7 @@ Parameters :
      --type | -t [ ec2 | rds | reserved | volumes | snapshots | ip | vpcs | 
                    eks | ecs | ecs-clusters | ecs-tasks | subnets | iam | 
                    iamusers | iamroles | es | cognito-pools | cognito-users | 
-                   s3 | certs | cloudfront | lambda ]
+                   s3 | certs | cloudfront | lambda | ecr ]
 
      --domain | -data | -d [ data-goes-here ]
 
@@ -181,6 +181,10 @@ do
                         BASE="cloudfront list-distributions"
                         QUERY=""
                 fi
+		if [ "$TYPE" == "ECR" ] ; then
+			BASE="ecr describe-repositories"
+			QUERY="repositories[].repositoryName"
+		fi
                 shift # past argument
                 shift # past parameter
             ;;
