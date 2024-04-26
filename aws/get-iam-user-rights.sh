@@ -8,7 +8,7 @@
 # Usage :
 #	get-iam-user-rights.sh			To list the users and their rights
 #	get-iam-user-rights.sh -direct		Same but only list direct attach ones, not group ones
-
+#       get-iam-user-rights.sh -groups          List the users and only the groups they are in
 
 # Get a list of all IAM users
 user_list=$(aws iam list-users --query 'Users[*].[UserName]' --output text)
@@ -20,12 +20,14 @@ for user in $user_list; do
     # Get the policies directly attached to the user
     user_policies=$(aws iam list-attached-user-policies --user-name $user --query 'AttachedPolicies[*].[PolicyName]' --output text)
     
-    # Display policies attached directly to the user
-    if [ -n "$user_policies" ]; then
-        echo "  Directly Attached Policies:"
-        echo "$user_policies"
-    else
-        echo "  No policies directly attached."
+    if [ "$1" != "-groups" ] ; then
+	    # Display policies attached directly to the user
+	    if [ -n "$user_policies" ]; then
+	        echo "  Directly Attached Policies:"
+	        echo "$user_policies"
+	    else
+	        echo "  No policies directly attached."
+	    fi
     fi
     
     if [ "$1" != "-direct" ] ; then
@@ -36,16 +38,18 @@ for user in $user_list; do
 	    for group in $user_groups; do
 	        echo "  Group: $group"
 	        
-	        # Get policies attached to the group
-	        group_policies=$(aws iam list-attached-group-policies --group-name $group --query 'AttachedPolicies[*].[PolicyName]' --output text)
-	        
-	        # Display policies attached to the group
-	        if [ -n "$group_policies" ]; then
-	            echo "    Policies Attached via Group:"
-	            echo "$group_policies"
-	        else
-	            echo "    No policies attached via group."
-	        fi
+		if [ "$1" != "-groups" ]; then
+		        # Get policies attached to the group
+		        group_policies=$(aws iam list-attached-group-policies --group-name $group --query 'AttachedPolicies[*].[PolicyName]' --output text)
+		        
+		        # Display policies attached to the group
+		        if [ -n "$group_policies" ]; then
+		            echo "    Policies Attached via Group:"
+		            echo "$group_policies"
+		        else
+		            echo "    No policies attached via group."
+		        fi
+		fi
 	    done
     fi    
     echo "---------------------"
