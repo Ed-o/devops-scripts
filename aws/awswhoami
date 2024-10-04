@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# Describe the AWS account and user for AWS CLI 
+# By Ed ODonnell
+#
+# Version : 20241004
+
+ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
+ACCOUNT_ALIAS=$(aws iam list-account-aliases --query "AccountAliases[0]" --output text)
+USER_NAME=$(aws sts get-caller-identity --query "Arn" --output text | cut -d'/' -f2)
+
+echo "Account ID: $ACCOUNT_ID"
+echo "Account Alias: $ACCOUNT_ALIAS"
+echo "Username: $USER_NAME"
+
+
