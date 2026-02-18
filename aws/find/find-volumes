@@ -1,0 +1,86 @@
+#!/bin/bash
+
+# find an AWS volume in all accounts / in all regions
+# By:         Ed O'Donnell
+#
+# Release: 20260218
+#
+# usage :
+#      find-volumes				# show all volumes, everywhere
+#      find-volumes vol-12345678		# look for a single volume
+#  
+ 
+
+ACCOUNTS=(
+	xxx_yyy
+	yyy_zzz
+)
+
+TARGET_VOLUME="$1"
+
+if [ -n "$TARGET_VOLUME" ]; then
+    echo "Searching for volume: $TARGET_VOLUME"
+else
+    echo "No volume specified — listing ALL volumes"
+    printf "%-12s %-15s %-25s %-30s\n" "ACCOUNT" "REGION" "VOLUME ID" "NAME"
+    echo "--------------------------------------------------------------------------------------------------"
+fi
+
+for ACCOUNT in "${ACCOUNTS[@]}"; do
+
+    # Get Account ID 
+    ACCOUNT_ID=$(aws sts get-caller-identity --profile $ACCOUNT --region eu-west-1 --query Account --output text 2>/dev/null) 
+    echo "Checking Account: $ACCOUNT"
+    if [ -z "$ACCOUNT_ID" ]; then 
+	echo "Could not authenticate with $ACCOUNT"
+	continue
+    fi
+
+
+    REGIONS=$(aws ec2 describe-regions \
+        --region eu-west-1 \
+        --profile "$ACCOUNT" \
+        --query "Regions[].RegionName" \
+        --output text 2>/dev/null)
+
+    for REGION in $REGIONS; do
+
+	echo "Checking region - $REGION"
+        if [ -n "$TARGET_VOLUME" ]; then
+
+            # ---- Search for specific volume ----
+            VOLUME_INFO=$(aws ec2 describe-volumes \
+                --profile "$ACCOUNT" \
+                --region "$REGION" \
+                --volume-ids "$TARGET_VOLUME" \
+                --query "Volumes[0].{Name:Tags[?Key=='Name']|[0].Value}" \
+                --output text 2>/dev/null)
+
+            if [ $? -eq 0 ] && [ "$VOLUME_INFO" != "None" ]; then
+                echo ""
+                echo "FOUND ---->"
+                echo "Account : $ACCOUNT"
+                echo "Region  : $REGION"
+                echo "Name    : $VOLUME_INFO"
+                echo "---------------------------------------"
+            fi
+
+        else
+
+            # ---- List all volumes ----
+            aws ec2 describe-volumes \
+                --profile "$ACCOUNT" \
+                --region "$REGION" \
+                --query "Volumes[].{ID:VolumeId,Name:Tags[?Key=='Name']|[0].Value}" \
+                --output text 2>/dev/null | \
+            while read VOL_ID VOL_NAME; do
+                printf "%-12s %-15s %-25s %-30s\n" "$ACCOUNT" "$REGION" "$VOL_ID" "${VOL_NAME:-N/A}"
+            done
+
+        fi
+
+    done
+done
+
+echo ""
+echo "Done."

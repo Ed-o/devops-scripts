@@ -1,0 +1,96 @@
+#!/bin/bash
+
+# find an AWS iEC2 server in all accounts / in all regions
+# By:         Ed O'Donnell
+#
+# Release: 20260218
+#
+# usage :
+#      find-volumes                             # show all ec2 servers, everywhere
+#      find-volumes i-1234567890                # look for a single instance
+#
+
+ACCOUNTS=(
+    xxx_yyy
+    yyy_zzz
+)
+
+TARGET_INSTANCE="$1"
+
+if [ -n "$TARGET_INSTANCE" ]; then
+    echo "Searching for instance: $TARGET_INSTANCE"
+else
+    echo "No instance specified — listing ALL EC2 instances"
+    printf "%-12s %-15s %-22s %-25s %-12s %-15s\n" "ACCOUNT" "REGION" "INSTANCE ID" "NAME" "STATE" "TYPE"
+    echo "----------------------------------------------------------------------------------------------------------------------"
+fi
+
+for ACCOUNT in "${ACCOUNTS[@]}"; do
+
+    ACCOUNT_ID=$(aws sts get-caller-identity \
+        --profile "$ACCOUNT" \
+        --region eu-west-1 \
+        --query Account \
+        --output text 2>/dev/null)
+
+    echo "Checking Account: $ACCOUNT"
+
+    if [ -z "$ACCOUNT_ID" ]; then
+        echo "Could not authenticate with $ACCOUNT"
+        continue
+    fi
+
+    REGIONS=$(aws ec2 describe-regions \
+        --region eu-west-1 \
+        --profile "$ACCOUNT" \
+        --query "Regions[].RegionName" \
+        --output text 2>/dev/null)
+
+    for REGION in $REGIONS; do
+
+        echo "Checking region - $REGION"
+
+        if [ -n "$TARGET_INSTANCE" ]; then
+
+            # ---- Search for specific instance ----
+            INSTANCE_INFO=$(aws ec2 describe-instances \
+                --profile "$ACCOUNT" \
+                --region "$REGION" \
+                --instance-ids "$TARGET_INSTANCE" \
+                --query "Reservations[].Instances[].{Name:Tags[?Key=='Name']|[0].Value,State:State.Name,Type:InstanceType}" \
+                --output text 2>/dev/null)
+
+            if [ $? -eq 0 ] && [ -n "$INSTANCE_INFO" ]; then
+                echo ""
+                echo "FOUND ---->"
+                echo "Account : $ACCOUNT"
+                echo "Region  : $REGION"
+                echo "$INSTANCE_INFO"
+                echo "---------------------------------------"
+            fi
+
+        else
+
+            # ---- List all instances ----
+            aws ec2 describe-instances \
+                --profile "$ACCOUNT" \
+                --region "$REGION" \
+                --query "Reservations[].Instances[].{ID:InstanceId,Name:Tags[?Key=='Name']|[0].Value,State:State.Name,Type:InstanceType}" \
+                --output text 2>/dev/null | \
+            while read INSTANCE_ID NAME STATE TYPE; do
+                printf "%-12s %-15s %-22s %-25s %-12s %-15s\n" \
+                    "$ACCOUNT" \
+                    "$REGION" \
+                    "$INSTANCE_ID" \
+                    "${NAME:-N/A}" \
+                    "$STATE" \
+                    "$TYPE"
+            done
+
+        fi
+
+    done
+done
+
+echo ""
+echo "Done."
