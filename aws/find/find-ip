@@ -1,0 +1,85 @@
+#!/bin/bash
+
+# find an AWS IP in all accounts / in all regions
+# By:         Ed O'Donnell
+#
+# Release: 20260218
+#
+# usage :
+#      find-ip 10.20.30.40                 # look for IP address in your AWS accounts
+#
+
+
+ACCOUNTS=(
+    xxx_yyy
+    yyy_zzz
+)
+
+TARGET_IP="$1"
+
+if [ -z "$TARGET_IP" ]; then
+    echo "Usage: ./find-ip.sh <IP_ADDRESS>"
+    exit 1
+fi
+
+echo "Searching for IP: $TARGET_IP"
+echo "--------------------------------------------------------------------------------------------------------------"
+printf "%-12s %-15s %-20s %-25s %-15s %-15s %-30s\n" \
+"ACCOUNT" "REGION" "TYPE" "RESOURCE ID" "PRIVATE IP" "PUBLIC IP" "DESCRIPTION"
+echo "--------------------------------------------------------------------------------------------------------------"
+
+for ACCOUNT in "${ACCOUNTS[@]}"; do
+
+    ACCOUNT_ID=$(aws sts get-caller-identity \
+        --profile "$ACCOUNT" \
+        --region eu-west-1 \
+        --query Account \
+        --output text 2>/dev/null)
+
+    if [ -z "$ACCOUNT_ID" ]; then
+        echo "Could not authenticate with $ACCOUNT"
+        continue
+    fi
+
+    REGIONS=$(aws ec2 describe-regions \
+        --region eu-west-1 \
+        --profile "$ACCOUNT" \
+        --query "Regions[].RegionName" \
+        --output text 2>/dev/null)
+
+    for REGION in $REGIONS; do
+
+        RESULT=$(aws ec2 describe-network-interfaces \
+            --profile "$ACCOUNT" \
+            --region "$REGION" \
+            --filters \
+                Name=addresses.private-ip-address,Values="$TARGET_IP" \
+                Name=association.public-ip,Values="$TARGET_IP" \
+            --query "NetworkInterfaces[].{
+                Type:InterfaceType,
+                ID:NetworkInterfaceId,
+                PrivateIP:PrivateIpAddress,
+                PublicIP:Association.PublicIp,
+                Description:Description,
+                Attachment:Attachment.InstanceId
+            }" \
+            --output text 2>/dev/null)
+
+        if [ -n "$RESULT" ]; then
+            echo "$RESULT" | while read TYPE ID PRIVATE PUBLIC DESC ATTACH; do
+                printf "%-12s %-15s %-20s %-25s %-15s %-15s %-30s\n" \
+                    "$ACCOUNT" \
+                    "$REGION" \
+                    "$TYPE" \
+                    "${ATTACH:-$ID}" \
+                    "${PRIVATE:-N/A}" \
+                    "${PUBLIC:-N/A}" \
+                    "${DESC:-N/A}"
+            done
+        fi
+
+    done
+done
+
+echo ""
+echo "Done."
